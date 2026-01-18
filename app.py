@@ -212,6 +212,12 @@ def template_df(data: dict) -> pd.DataFrame:
 # App
 # -----------------------
 data = load_data()
+# Prorrateo anual por cuenta (necesario globalmente)
+
+pr_by_acc = prorrated_by_account(data)
+pr_global = sum(pr_by_acc.values())
+col3.metric("Prorrateo anuales (planificación)", eur(pr_global))
+
 
 # Sidebar: mes
 default_month = date.today().month
