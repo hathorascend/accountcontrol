@@ -21,10 +21,11 @@ DATA_DIR.mkdir(exist_ok=True)
 DATA_FILE = DATA_DIR / "control_pagos_streamlit_2026.json"
 LOG_FILE = DATA_DIR / "operaciones.txt"
 
+
 def eur(x: float) -> str:
-    # formato sencillo es-ES
     s = f"{x:,.2f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".") + " €"
+
 
 def log_op(action: str, detail: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -34,16 +35,27 @@ def log_op(action: str, detail: str) -> None:
     else:
         LOG_FILE.write_text(line, encoding="utf-8")
 
+
 def save_data(data: dict) -> None:
     DATA_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+
+def validate_backup_schema(d: dict) -> None:
+    required = ["year", "control_day", "balances", "template", "months"]
+    for k in required:
+        if k not in d:
+            raise ValueError(f"Backup inválido: falta clave '{k}'")
+
+
 def ym_key(y: int, m: int) -> str:
     return f"{y:04d}-{m:02d}"
+
 
 def safe_date(y: int, m: int, d: int) -> str:
     last = calendar.monthrange(y, m)[1]
     dd = min(max(1, int(d)), last)
     return f"{y:04d}-{m:02d}-{dd:02d}"
+
 
 # -----------------------
 # Cuentas (5)
@@ -96,6 +108,7 @@ TEMPLATE_DEFAULT = [
     {"id": 202, "name": "Telegram Premium (Anual)", "amount": 33.99, "day": 25, "account_id": 2, "type": "sub_annual", "annual_month": 9},
 ]
 
+
 def load_data() -> dict:
     if DATA_FILE.exists():
         return json.loads(DATA_FILE.read_text(encoding="utf-8"))
@@ -104,12 +117,13 @@ def load_data() -> dict:
         "control_day": CONTROL_DAY,
         "balances": {str(a["id"]): 0.0 for a in ACCOUNTS},
         "template": TEMPLATE_DEFAULT,
-        "months": {},  # "YYYY-MM": {"items":[...]}
-        "next_id": 1000
+        "months": {},
+        "next_id": 1000,
     }
     save_data(data)
     log_op("INIT", f"Inicializado {YEAR} con {len(TEMPLATE_DEFAULT)} partidas")
     return data
+
 
 def ensure_month(data: dict, y: int, m: int) -> None:
     key = ym_key(y, m)
@@ -118,10 +132,8 @@ def ensure_month(data: dict, y: int, m: int) -> None:
 
     items = []
     for t in data["template"]:
-        # Anuales: solo en su mes real
-        if t["type"] == "sub_annual":
-            if int(t.get("annual_month", 0)) != m:
-                continue
+        if t["type"] == "sub_annual" and int(t.get("annual_month", 0)) != m:
+            continue
 
         items.append({
             "tid": int(t["id"]),
@@ -137,13 +149,16 @@ def ensure_month(data: dict, y: int, m: int) -> None:
     save_data(data)
     log_op("NEW_MONTH", f"Creado {key} con {len(items)} cargos")
 
+
 def month_items(data: dict, key: str):
     return data["months"][key]["items"]
+
 
 def calc_totals(items):
     total = sum(i["amount"] for i in items)
     pending = sum(i["amount"] for i in items if not i["paid"])
     return total, pending
+
 
 def need_by_account(items, only_pending=True):
     by = {}
@@ -153,6 +168,7 @@ def need_by_account(items, only_pending=True):
         by[i["account_id"]] = by.get(i["account_id"], 0.0) + i["amount"]
     return by
 
+
 def prorrated_by_account(data: dict):
     by = {}
     for t in data["template"]:
@@ -160,6 +176,7 @@ def prorrated_by_account(data: dict):
             acc = int(t["account_id"])
             by[acc] = by.get(acc, 0.0) + float(t["amount"]) / 12.0
     return by
+
 
 def export_pending_txt(data: dict, key: str) -> Path:
     items = sorted([i for i in month_items(data, key) if not i["paid"]], key=lambda x: x["due"])
@@ -174,6 +191,7 @@ def export_pending_txt(data: dict, key: str) -> Path:
     log_op("EXPORT", f"{out_file.name} generado ({len(items)} items)")
     return out_file
 
+
 def template_df(data: dict) -> pd.DataFrame:
     rows = []
     for t in data["template"]:
@@ -185,10 +203,10 @@ def template_df(data: dict) -> pd.DataFrame:
             "account_id": int(t["account_id"]),
             "account": ACC_BY_ID.get(int(t["account_id"]), ""),
             "type": t["type"],
-            "annual_month": int(t.get("annual_month", 0)) if t["type"] == "sub_annual" else 0
+            "annual_month": int(t.get("annual_month", 0)) if t["type"] == "sub_annual" else 0,
         })
-    df = pd.DataFrame(rows).sort_values(["type", "account_id", "day", "name"])
-    return df
+    return pd.DataFrame(rows).sort_values(["type", "account_id", "day", "name"])
+
 
 # -----------------------
 # App
@@ -214,6 +232,28 @@ st.caption(f"Fecha referencial de control: día {data['control_day']}")
 auto_deduct = st.sidebar.checkbox("Descontar saldo al marcar Pagado", value=True)
 st.sidebar.caption("Si desmarcas un pago, el saldo se devuelve automáticamente.")
 
+# Backup JSON
+st.sidebar.subheader("Backup (JSON)")
+export_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+st.sidebar.download_button(
+    "Descargar backup JSON",
+    data=export_bytes,
+    file_name=f"backup_control_pagos_{data['year']}.json",
+    mime="application/json",
+)
+uploaded = st.sidebar.file_uploader("Importar backup JSON", type=["json"])
+if uploaded is not None:
+    try:
+        incoming = json.loads(uploaded.getvalue().decode("utf-8"))
+        validate_backup_schema(incoming)
+        incoming["year"] = YEAR  # año fijo
+        save_data(incoming)
+        log_op("IMPORT_JSON", f"Backup importado: {len(incoming.get('template', []))} items plantilla")
+        st.sidebar.success("Backup importado. Recargando…")
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"No se pudo importar: {e}")
+
 col1, col2, col3 = st.columns(3)
 col1.metric("Total del mes (real)", eur(total))
 col2.metric("Falta por pagar (real)", eur(pending))
@@ -223,12 +263,14 @@ col3.metric("Prorrateo anuales (planificación)", eur(pr_global))
 
 st.divider()
 
-# Estado por cuenta: ahora incluye "FALTA PARA OK"
+# Estado por cuenta
 st.subheader("Estado por cuenta (meta del mes)")
 
 balances = {k: float(v) for k, v in data["balances"].items()}
-need_pending = need_by_account(items_sorted, only_pending=True)  # lo que falta por pagar
-need_all = need_by_account(items_sorted, only_pending=False)     # lo que cuesta el mes completo
+if any(v < 0 for v in balances.values()):
+    st.warning("Hay cuentas con saldo negativo (por auto-descuento o ajustes).")
+
+need_pending = need_by_account(items_sorted, only_pending=True)
 
 rows = []
 ok_global = True
@@ -240,7 +282,7 @@ for a in ACCOUNTS:
     acc_id = a["id"]
     bal = float(balances.get(str(acc_id), 0.0))
     need = float(need_pending.get(acc_id, 0.0))
-    deficit = max(0.0, need - bal)  # <- esto es lo que te faltaba ver
+    deficit = max(0.0, need - bal)
     ok = deficit == 0.0
     ok_global = ok_global and ok
 
@@ -259,15 +301,16 @@ for a in ACCOUNTS:
     })
 
 df_accounts = pd.DataFrame(rows)
-# orden visual
 df_accounts = df_accounts[[
-    "Cuenta","Saldo actual","Pendiente en esta cuenta (mes)","Falta para OK","OK",
-    "Prorrateo anuales / mes","Estructural (Pendiente + Prorrateo)"
+    "Cuenta", "Saldo actual", "Pendiente en esta cuenta (mes)", "Falta para OK", "OK",
+    "Prorrateo anuales / mes", "Estructural (Pendiente + Prorrateo)"
 ]]
 
-# Formato
 df_show = df_accounts.copy()
-for col in ["Saldo actual","Pendiente en esta cuenta (mes)","Falta para OK","Prorrateo anuales / mes","Estructural (Pendiente + Prorrateo)"]:
+for col in [
+    "Saldo actual", "Pendiente en esta cuenta (mes)", "Falta para OK",
+    "Prorrateo anuales / mes", "Estructural (Pendiente + Prorrateo)"
+]:
     df_show[col] = df_show[col].apply(eur)
 
 cA, cB = st.columns([2, 1])
@@ -281,7 +324,7 @@ with cB:
 
 st.divider()
 
-# Actualizar saldos
+# Actualizar saldos (permite negativos)
 st.subheader("Actualizar saldos por cuenta")
 with st.form("balances_form"):
     cols = st.columns(5)
@@ -290,7 +333,7 @@ with st.form("balances_form"):
         with cols[idx]:
             new_balances[str(a["id"])] = st.number_input(
                 a["name"],
-                min_value=0.0,
+                min_value=-1_000_000.0,  # permite negativos
                 step=10.0,
                 value=float(balances.get(str(a["id"]), 0.0)),
                 format="%.2f",
@@ -333,7 +376,6 @@ if save_paid:
     changes = 0
     bal_changes = 0
 
-    # aplicamos cambios item por item
     for tid, due, new_paid in edited:
         for it in items:
             if it["tid"] == tid and it["due"] == due:
@@ -345,7 +387,6 @@ if save_paid:
                     if auto_deduct:
                         acc_k = str(it["account_id"])
                         amt = float(it["amount"])
-                        # si pasa a pagado: descontar; si vuelve a no pagado: devolver
                         if it["paid"] and not old_paid:
                             data["balances"][acc_k] = round(float(data["balances"].get(acc_k, 0.0)) - amt, 2)
                             bal_changes += 1
@@ -354,7 +395,6 @@ if save_paid:
                             data["balances"][acc_k] = round(float(data["balances"].get(acc_k, 0.0)) + amt, 2)
                             bal_changes += 1
                             log_op("REFUND", f"{key} {it['name']} +{amt:.2f} ({ACC_BY_ID[it['account_id']]})")
-
                 break
 
     save_data(data)
@@ -364,7 +404,7 @@ if save_paid:
 
 st.divider()
 
-# Editor SOLO este mes (cambia amounts/due/account del mes sin tocar plantilla)
+# Editor SOLO este mes
 st.subheader("Editar cargos SOLO de este mes")
 st.caption("Útil si este mes un importe cambió. No modifica la plantilla futura.")
 
@@ -387,28 +427,23 @@ with st.expander("Abrir editor del mes"):
             "account_id": st.column_config.SelectboxColumn(
                 "account_id",
                 options=[a["id"] for a in ACCOUNTS],
-                help="Cuenta por ID"
+                help="Cuenta por ID",
             ),
         },
         disabled=["tid", "type"],
-        key=f"month_editor_{key}"
+        key=f"month_editor_{key}",
     )
 
     if st.button("Guardar cambios del mes"):
-        # aplicar cambios por (tid,due) con un match robusto usando tid + name + due anterior
         by_tid_due = {(i["tid"], i["due"]): i for i in items}
         updated = 0
         for _, row in edited_df.iterrows():
             k2 = (int(row["tid"]), str(row["due"]))
             if k2 in by_tid_due:
                 it = by_tid_due[k2]
-                new_amount = round(float(row["amount"]), 2)
-                new_acc = int(row["account_id"])
-                new_paid = bool(row["paid"])
-                # aplicar
-                it["amount"] = new_amount
-                it["account_id"] = new_acc
-                it["paid"] = new_paid
+                it["amount"] = round(float(row["amount"]), 2)
+                it["account_id"] = int(row["account_id"])
+                it["paid"] = bool(row["paid"])
                 updated += 1
         save_data(data)
         log_op("EDIT_MONTH", f"{key}: editados {updated} items (solo mes)")
@@ -417,7 +452,7 @@ with st.expander("Abrir editor del mes"):
 
 st.divider()
 
-# Editor de plantilla (gastos fijos/suscripciones)
+# Editor de plantilla
 st.subheader("Editar PLANTILLA (gastos futuros)")
 st.caption("Esto modifica lo que se cargará en meses FUTUROS. Los meses ya creados no se reescriben automáticamente.")
 
@@ -428,29 +463,22 @@ with st.expander("Abrir editor de plantilla"):
         use_container_width=True,
         num_rows="fixed",
         column_config={
-            "type": st.column_config.SelectboxColumn(
-                "type",
-                options=["fixed", "sub_monthly", "sub_annual"]
-            ),
-            "account_id": st.column_config.SelectboxColumn(
-                "account_id",
-                options=[a["id"] for a in ACCOUNTS]
-            ),
+            "type": st.column_config.SelectboxColumn("type", options=["fixed", "sub_monthly", "sub_annual"]),
+            "account_id": st.column_config.SelectboxColumn("account_id", options=[a["id"] for a in ACCOUNTS]),
             "annual_month": st.column_config.SelectboxColumn(
                 "annual_month",
                 options=list(range(0, 13)),
-                help="Solo para sub_annual (1-12). 0 si no aplica."
+                help="Solo para sub_annual (1-12). 0 si no aplica.",
             ),
         },
         disabled=["account"],
-        key="template_editor"
+        key="template_editor",
     )
 
     c1, c2 = st.columns([1, 1])
 
     with c1:
         if st.button("Guardar plantilla"):
-            # Validaciones básicas y guardado
             new_template = []
             for _, row in edited_t.iterrows():
                 ttype = str(row["type"])
@@ -459,15 +487,17 @@ with st.expander("Abrir editor de plantilla"):
                     st.error(f"El item {row['id']} es anual y necesita annual_month 1-12.")
                     st.stop()
 
-                new_template.append({
+                obj = {
                     "id": int(row["id"]),
                     "name": str(row["name"]).strip(),
                     "amount": round(float(row["amount"]), 2),
                     "day": int(row["day"]),
                     "account_id": int(row["account_id"]),
                     "type": ttype,
-                    **({"annual_month": ann_m} if ttype == "sub_annual" else {})
-                })
+                }
+                if ttype == "sub_annual":
+                    obj["annual_month"] = ann_m
+                new_template.append(obj)
 
             data["template"] = new_template
             save_data(data)
@@ -484,7 +514,6 @@ with st.expander("Abrir editor de plantilla"):
             new_type = st.selectbox("Tipo", ["fixed", "sub_monthly", "sub_annual"])
             new_account = st.selectbox("Cuenta", [a["id"] for a in ACCOUNTS], format_func=lambda x: ACC_BY_ID[x])
             new_ann_m = st.selectbox("Mes anual (si aplica)", list(range(0, 13)), index=0)
-
             add_btn = st.form_submit_button("Añadir a plantilla")
 
         if add_btn:
@@ -500,7 +529,7 @@ with st.expander("Abrir editor de plantilla"):
                 "amount": round(float(new_amount), 2),
                 "day": int(new_day),
                 "account_id": int(new_account),
-                "type": new_type
+                "type": new_type,
             }
             if new_type == "sub_annual":
                 obj["annual_month"] = int(new_ann_m)
