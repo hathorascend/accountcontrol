@@ -345,8 +345,36 @@ with cB:
     st.metric("Suma pendiente (real)", eur(sum_need))
     st.metric("Falta total para OK", eur(sum_deficit))
     st.markdown(f"**Estado global del mes:** {'🟢 OK' if ok_global else '🔴 NO OK'}")
+    st.metric("Disponible para distribuir", eur(excess_total))
+    st.metric("Falta total para OK", eur(deficit_total))
+    st.markdown(f"**¿Redistribución suficiente?:** {'🟢 Sí' if can_redistribute else '🔴 No'}")
+
 
 st.divider()
+# --- Redistribución: excedentes vs déficits ---
+excess_total = 0.0
+deficit_total = 0.0
+excess_by_acc = {}
+deficit_by_acc = {}
+
+for a in ACCOUNTS:
+    acc_id = a["id"]
+    bal = float(balances.get(str(acc_id), 0.0))
+    need = float(need_pending.get(acc_id, 0.0))
+
+    excess = max(0.0, bal - need)
+    deficit = max(0.0, need - bal)
+
+    excess_by_acc[acc_id] = excess
+    deficit_by_acc[acc_id] = deficit
+
+    excess_total += excess
+    deficit_total += deficit
+
+can_redistribute = excess_total >= deficit_total
+
+
+
 
 # Actualizar saldos (permite negativos)
 st.subheader("Actualizar saldos por cuenta")
