@@ -296,62 +296,7 @@ if any(v < 0 for v in balances.values()):
 
 need_pending = need_by_account(items_sorted, only_pending=True)
 
-rows = []
-ok_global = True
-sum_bal = 0.0
-sum_need = 0.0
-sum_deficit = 0.0
-
-for a in ACCOUNTS:
-    acc_id = a["id"]
-    bal = float(balances.get(str(acc_id), 0.0))
-    need = float(need_pending.get(acc_id, 0.0))
-    deficit = max(0.0, need - bal)
-    ok = deficit == 0.0
-    ok_global = ok_global and ok
-
-    sum_bal += bal
-    sum_need += need
-    sum_deficit += deficit
-
-    rows.append({
-        "Cuenta": a["name"],
-        "Saldo actual": bal,
-        "Pendiente en esta cuenta (mes)": need,
-        "Falta para OK": deficit,
-        "OK": "OK" if ok else "NO OK",
-        "Prorrateo anuales / mes": float(pr_by_acc.get(acc_id, 0.0)),
-        "Estructural (Pendiente + Prorrateo)": need + float(pr_by_acc.get(acc_id, 0.0)),
-    })
-
-df_accounts = pd.DataFrame(rows)
-df_accounts = df_accounts[[
-    "Cuenta", "Saldo actual", "Pendiente en esta cuenta (mes)", "Falta para OK", "OK",
-    "Prorrateo anuales / mes", "Estructural (Pendiente + Prorrateo)"
-]]
-
-df_show = df_accounts.copy()
-for col in [
-    "Saldo actual", "Pendiente en esta cuenta (mes)", "Falta para OK",
-    "Prorrateo anuales / mes", "Estructural (Pendiente + Prorrateo)"
-]:
-    df_show[col] = df_show[col].apply(eur)
-
-cA, cB = st.columns([2, 1])
-with cA:
-    st.dataframe(df_show, use_container_width=True, hide_index=True)
-with cB:
-    st.metric("Suma saldos (5 cuentas)", eur(sum_bal))
-    st.metric("Suma pendiente (real)", eur(sum_need))
-    st.metric("Falta total para OK", eur(sum_deficit))
-    st.markdown(f"**Estado global del mes:** {'🟢 OK' if ok_global else '🔴 NO OK'}")
-    st.metric("Disponible para distribuir", eur(excess_total))
-    st.metric("Falta total para OK", eur(deficit_total))
-    st.markdown(f"**¿Redistribución suficiente?:** {'🟢 Sí' if can_redistribute else '🔴 No'}")
-
-
-st.divider()
-# --- Redistribución: excedentes vs déficits ---
+# --- Redistribución: excedentes vs déficits (una sola vez) ---
 excess_total = 0.0
 deficit_total = 0.0
 excess_by_acc = {}
@@ -360,7 +305,7 @@ deficit_by_acc = {}
 for a in ACCOUNTS:
     acc_id = a["id"]
     bal = float(balances.get(str(acc_id), 0.0))
-    need = float(need_pending.get(acc_id, 0.0))
+    need = float(need_pending.get(acc_id, 0.0))  # <-- CORREGIDO
 
     excess = max(0.0, bal - need)
     deficit = max(0.0, need - bal)
@@ -373,8 +318,61 @@ for a in ACCOUNTS:
 
 can_redistribute = excess_total >= deficit_total
 
+# Tabla por cuenta
+rows = []
+ok_global = True
+sum_bal = 0.0
+sum_need = 0.0
 
+for a in ACCOUNTS:
+    acc_id = a["id"]
+    bal = float(balances.get(str(acc_id), 0.0))
+    need = float(need_pending.get(acc_id, 0.0))
+    deficit = max(0.0, need - bal)
 
+    ok = deficit == 0.0
+    ok_global = ok_global and ok
+
+    sum_bal += bal
+    sum_need += need
+
+    rows.append({
+        "Cuenta": a["name"],
+        "Saldo actual": bal,
+        "Pendiente en esta cuenta (mes)": need,
+        "Falta para OK": deficit,
+        "OK": "OK" if ok else "NO OK",
+        "Prorrateo anuales / mes": float(pr_by_acc.get(acc_id, 0.0)),
+        "Estructural (Pendiente + Prorrateo)": need + float(pr_by_acc.get(acc_id, 0.0)),
+        "Excedente (distribuible)": excess_by_acc.get(acc_id, 0.0),
+    })
+
+df_accounts = pd.DataFrame(rows)
+df_accounts = df_accounts[[
+    "Cuenta", "Saldo actual", "Pendiente en esta cuenta (mes)", "Falta para OK", "OK",
+    "Prorrateo anuales / mes", "Estructural (Pendiente + Prorrateo)",
+    "Excedente (distribuible)"
+]]
+
+df_show = df_accounts.copy()
+for col in [
+    "Saldo actual", "Pendiente en esta cuenta (mes)", "Falta para OK",
+    "Prorrateo anuales / mes", "Estructural (Pendiente + Prorrateo)",
+    "Excedente (distribuible)"
+]:
+    df_show[col] = df_show[col].apply(eur)
+
+cA, cB = st.columns([2, 1])
+with cA:
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+with cB:
+    st.metric("Suma saldos (5 cuentas)", eur(sum_bal))
+    st.metric("Suma pendiente (real)", eur(sum_need))
+    st.metric("Falta total para OK", eur(deficit_total))
+    st.metric("Disponible para distribuir", eur(excess_total))
+    st.markdown(f"**¿Redistribución suficiente?:** {'🟢 Sí' if can_redistribute else '🔴 No'}")
+    st.markdown(f"**Estado global del mes:** {'🟢 OK' if ok_global else '🔴 NO OK'}")
 
 # Actualizar saldos (permite negativos)
 st.subheader("Actualizar saldos por cuenta")
