@@ -234,6 +234,8 @@ st.sidebar.caption("Si desmarcas un pago, el saldo se devuelve automáticamente.
 
 # Backup JSON
 st.sidebar.subheader("Backup (JSON)")
+
+# Export
 export_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 st.sidebar.download_button(
     "Descargar backup JSON",
@@ -241,27 +243,44 @@ st.sidebar.download_button(
     file_name=f"backup_control_pagos_{data['year']}.json",
     mime="application/json",
 )
-uploaded = st.sidebar.file_uploader("Importar backup JSON", type=["json"])
+
+# Import (solo bajo accion del usuario)
+uploaded = st.sidebar.file_uploader("Seleccionar backup JSON", type=["json"])
+
+if "last_import_sig" not in st.session_state:
+    st.session_state["last_import_sig"] = None
+
 if uploaded is not None:
-    try:
-        incoming = json.loads(uploaded.getvalue().decode("utf-8"))
-        validate_backup_schema(incoming)
-        incoming["year"] = YEAR  # año fijo
-        save_data(incoming)
-        log_op("IMPORT_JSON", f"Backup importado: {len(incoming.get('template', []))} items plantilla")
-        st.sidebar.success("Backup importado. Recargando…")
-        st.rerun()
-    except Exception as e:
-        st.sidebar.error(f"No se pudo importar: {e}")
+    raw = uploaded.getvalue()
+    sig = f"{uploaded.name}:{len(raw)}"  # firma simple
+    st.sidebar.caption(f"Archivo listo: {uploaded.name} ({len(raw)} bytes)")
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Total del mes (real)", eur(total))
-col2.metric("Falta por pagar (real)", eur(pending))
-pr_by_acc = prorrated_by_account(data)
-pr_global = sum(pr_by_acc.values())
-col3.metric("Prorrateo anuales (planificación)", eur(pr_global))
+    do_import = st.sidebar.button("Importar ahora", type="primary")
 
-st.divider()
+    if do_import:
+        try:
+            incoming = json.loads(raw.decode("utf-8"))
+            validate_backup_schema(incoming)
+
+            # año fijo
+            incoming["year"] = YEAR
+
+            # marca para que sepas que SI cambió
+            incoming.setdefault("meta", {})
+            incoming["meta"]["last_import_ts"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            incoming["meta"]["last_import_file"] = uploaded.name
+
+            save_data(incoming)
+            log_op("IMPORT_JSON", f"Backup importado: {uploaded.name}")
+
+            st.session_state["last_import_sig"] = sig
+            st.sidebar.success("Backup importado. Recargando…")
+            st.rerun()
+            st.stop()
+
+        except Exception as e:
+            st.sidebar.error(f"No se pudo importar: {e}")
+
 
 # Estado por cuenta
 st.subheader("Estado por cuenta (meta del mes)")
