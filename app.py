@@ -216,7 +216,6 @@ data = load_data()
 
 pr_by_acc = prorrated_by_account(data)
 pr_global = sum(pr_by_acc.values())
-col3.metric("Prorrateo anuales (planificación)", eur(pr_global))
 
 
 # Sidebar: mes
