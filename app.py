@@ -83,7 +83,7 @@ TEMPLATE_DEFAULT = [
     {"id": 5, "name": "Crédito complementario casa", "amount": 385.00, "day": 15, "account_id": 3, "type": "fixed"},
     {"id": 6, "name": "Cofidis", "amount": 145.00, "day": 20, "account_id": 1, "type": "fixed"},
     {"id": 7, "name": "IKEA Yda", "amount": 200.00, "day": 25, "account_id": 1, "type": "fixed"},
-    {"id": 8, "name": "IKEA Moisés", "amount": 200.00, "day": 25, "account_id": 5, "type": "fixed"},
+    {"id": 8, "name": "IKEA Moisés", "amount": 288.00, "day": 25, "account_id": 5, "type": "fixed"},
     {"id": 9, "name": "Vodafone", "amount": 15.00, "day": 8, "account_id": 1, "type": "fixed"},
     {"id": 10, "name": "Orange", "amount": 240.00, "day": 8, "account_id": 2, "type": "fixed"},
     {"id": 11, "name": "Carrefour", "amount": 100.00, "day": 12, "account_id": 1, "type": "fixed"},
@@ -93,6 +93,7 @@ TEMPLATE_DEFAULT = [
     {"id": 15, "name": "Curso inglés niño", "amount": 80.00, "day": 7, "account_id": 4, "type": "fixed"},
     {"id": 16, "name": "Karate", "amount": 50.00, "day": 7, "account_id": 4, "type": "fixed"},
     {"id": 17, "name": "Gasolina", "amount": 100.00, "day": 1, "account_id": 4, "type": "fixed"},
+    {"id": 18, "name": "bizum", "amount": 132.12, "day": 1, "account_id": 5, "type": "fixed"},
 
     # Suscripciones mensuales (todas cuenta 2)
     {"id": 101, "name": "ChatGPT Plus", "amount": 22.99, "day": 2, "account_id": 2, "type": "sub_monthly"},
